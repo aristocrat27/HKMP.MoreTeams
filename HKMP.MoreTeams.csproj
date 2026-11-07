@@ -1,0 +1,67 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<Import Project="LocalBuildProperties.props" Condition="Exists('LocalBuildProperties.props')" />
+	<PropertyGroup>
+		<HollowKnightManaged Condition="'$(HollowKnightManaged)' == ''">D:\SteamLibrary\steamapps\common\Hollow Knight\hollow_knight_Data\Managed</HollowKnightManaged>
+		<ModsDir Condition="'$(ModsDir)' == ''">$(HollowKnightManaged)\Mods</ModsDir>
+		<RootNamespace>HKMP.MoreTeams</RootNamespace>
+		<AssemblyName>HKMP.MoreTeams</AssemblyName>
+		<Copyright>Copyright ©  2026</Copyright>
+		<TargetFramework>net472</TargetFramework>
+		<LangVersion>latest</LangVersion>
+		<Version>1.0.0.0</Version>
+		<AssemblyVersion>1.0.0.0</AssemblyVersion>
+		<OutputPath>bin\$(Configuration)\</OutputPath>
+	</PropertyGroup>
+	<ItemGroup>
+		<Reference Include="Assembly-CSharp">
+			<HintPath>$(HollowKnightManaged)\Assembly-CSharp.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="HKMP">
+		  <HintPath>D:\SteamLibrary\steamapps\common\Hollow Knight\hollow_knight_Data\Managed\Mods\HKMP\HKMP.dll</HintPath>
+		</Reference>
+		<Reference Include="Modding" Condition="Exists('$(ModdingAssembly)')">
+			<HintPath>$(ModdingAssembly)</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="Newtonsoft.Json">
+			<HintPath>$(HollowKnightManaged)\Newtonsoft.Json.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="PlayMaker">
+			<HintPath>$(HollowKnightManaged)\PlayMaker.dll</HintPath>
+		</Reference>
+		<Reference Include="UnityEngine">
+			<HintPath>$(HollowKnightManaged)\UnityEngine.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="UnityEngine.CoreModule">
+			<HintPath>$(HollowKnightManaged)\UnityEngine.CoreModule.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="UnityEngine.IMGUIModule">
+			<HintPath>$(HollowKnightManaged)\UnityEngine.IMGUIModule.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="UnityEngine.TextRenderingModule">
+			<HintPath>$(HollowKnightManaged)\UnityEngine.TextRenderingModule.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="UnityEngine.UI">
+			<HintPath>$(HollowKnightManaged)\UnityEngine.UI.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="UnityEngine.UIModule">
+			<HintPath>$(HollowKnightManaged)\UnityEngine.UIModule.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+	</ItemGroup>
+	<Target Name="CopyAddonToOutputDirectory" AfterTargets="Build">
+		<PropertyGroup>
+		<TargetModFolder>$(ModsDir)\$(AssemblyName)</TargetModFolder>
+		</PropertyGroup>
+		<MakeDir Directories="$(TargetModFolder)" Condition="!Exists('$(TargetModFolder)')" />
+		<Copy SourceFiles="$(TargetPath)" DestinationFiles="$(TargetModFolder)\$(AssemblyName).dll" />
+		<Copy SourceFiles="$(TargetDir)$(AssemblyName).pdb" DestinationFiles="$(TargetModFolder)\$(AssemblyName).pdb" Condition="Exists('$(TargetDir)$(AssemblyName).pdb')" />
+	</Target>
+</Project>
