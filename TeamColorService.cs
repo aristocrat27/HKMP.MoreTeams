@@ -22,11 +22,17 @@ public static class TeamColorService {
 
 
     internal static bool ApplyCustomColor(object textMesh, int teamId) {
-        if (textMesh == null || !MoreTeamsClientAddon.TryGetTeam(teamId, out var team)) {
+        if (textMesh == null) {
             return false;
         }
 
         try {
+            if (!MoreTeamsClientAddon.TryGetTeam(teamId, out var team)) {
+                var restored = SetColorProperty(textMesh, "outlineColor", Color.black);
+                restored |= SetFloatProperty(textMesh, "outlineWidth", 0.2f);
+                return restored;
+            }
+
             if (!ColorUtility.TryParseHtmlString(team.TextColor, out var textColor)) {
                 return false;
             }
@@ -38,7 +44,7 @@ public static class TeamColorService {
 
             var changed = SetColorProperty(textMesh, "color", textColor);
             changed |= SetColorProperty(textMesh, "outlineColor", outlineColor);
-            SetFloatProperty(textMesh, "outlineWidth", team.OutlineEnabled ? 0.2f : 0f);
+            changed |= SetFloatProperty(textMesh, "outlineWidth", team.OutlineEnabled ? 0.2f : 0f);
             return changed;
         } catch (Exception exception) {
             Modding.Logger.LogWarn("HKMP.MoreTeams could not apply the team color to a username component: " + exception.GetBaseException());
@@ -47,7 +53,7 @@ public static class TeamColorService {
     }
 
     internal static int ApplyCustomColorToContainer(GameObject container, int teamId) {
-        if (container == null || !MoreTeamsClientAddon.TryGetTeam(teamId, out _)) {
+        if (container == null) {
             return 0;
         }
 

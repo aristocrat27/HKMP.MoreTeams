@@ -2,7 +2,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Hkmp.Api.Client;
@@ -25,6 +24,7 @@ internal sealed class InGameTeamMenu {
 
     private readonly object _settingsGroup;
     private readonly List<object> _originalContent;
+    private readonly object _stockTeamRadioButton;
     private readonly object _mainGroup;
     private readonly object _pageGroup;
     private readonly object _pageTitle;
@@ -48,6 +48,7 @@ internal sealed class InGameTeamMenu {
         var allOriginalComponents = componentList.Cast<object>().ToList();
         WrapCloseButton(allOriginalComponents[1]);
         _originalContent = allOriginalComponents.Skip(2).ToList();
+        _stockTeamRadioButton = _originalContent.FirstOrDefault(IsStockTeamRadioButton);
 
         _mainGroup = CreateComponentGroup(settingsGroup, true);
         _pageGroup = CreateComponentGroup(settingsGroup, false);
@@ -209,12 +210,9 @@ internal sealed class InGameTeamMenu {
                 normalizedHandlers.Add(team => {
                     if (IsNativeTeam(team)) {
                         originalHandler(team);
-                        return;
                     }
 
-                    if (!InvokeStockTeamHandlerWithoutApplying(originalHandler, Team.None)) {
-                        _owner?.LogInGameMenuWarning("Skipped the stock HKMP team-selector refresh for custom team ID " + Convert.ToInt32(team) + " because its apply callback could not be safely suppressed");
-                    }
+                    _current?.SynchronizeStockTeamSelection(Convert.ToInt32(team));
                 });
                 normalizedCount++;
             } else {
@@ -228,109 +226,12 @@ internal sealed class InGameTeamMenu {
 
         try {
             eventField.SetValue(clientManager, Delegate.Combine(normalizedHandlers.Cast<Delegate>().ToArray()));
-            _owner?.LogInGameMenuInfo("HKMP built-in team selector is guarded for custom IDs; its display fallback cannot submit a Team.None update");
+            _owner?.LogInGameMenuInfo("HKMP built-in team selector skips additional IDs; the stock radio selection is synchronized without assigning Team.None");
             return true;
         } catch (Exception exception) {
             _owner?.LogInGameMenuWarning("Could not normalize the HKMP built-in team menu callback: " + exception.GetBaseException());
             return false;
         }
-    }
-
-    private static bool InvokeStockTeamHandlerWithoutApplying(Action<Team> handler, Team displayTeam) {
-        if (handler == null || handler.Target == null) {
-            return false;
-        }
-
-        var teamOption = FindStockTeamOption(handler.Target, new HashSet<object>(ReferenceComparer.Instance), 0);
-        if (teamOption == null) {
-            return false;
-        }
-
-        var menuSetting = HkmpRuntimeResolver.GetMemberValue(teamOption, "menuSetting", "_menuSetting");
-        if (menuSetting == null && HkmpRuntimeResolver.GetMemberValue(teamOption, "customApplySetting", "_customApplySetting") is Delegate) {
-            menuSetting = teamOption;
-        }
-        if (menuSetting == null) {
-            return false;
-        }
-
-        var applyMemberName = HkmpRuntimeResolver.GetMemberValue(menuSetting, "customApplySetting") is Delegate
-            ? "customApplySetting"
-            : "_customApplySetting";
-        var originalApply = HkmpRuntimeResolver.GetMemberValue(menuSetting, applyMemberName);
-        if (!(originalApply is Delegate originalDelegate)) {
-            return false;
-        }
-
-        Delegate noOp;
-        try {
-            var invokeMethod = originalDelegate.GetType().GetMethod("Invoke");
-            if (invokeMethod == null) {
-                return false;
-            }
-
-            var parameters = invokeMethod.GetParameters()
-                .Select(parameter => Expression.Parameter(parameter.ParameterType, parameter.Name))
-                .ToArray();
-            noOp = Expression.Lambda(originalDelegate.GetType(), Expression.Empty(), parameters).Compile();
-        } catch (Exception exception) {
-            _owner?.LogInGameMenuWarning("Could not create a safe no-op for the stock HKMP team selector: " + exception.GetBaseException());
-            return false;
-        }
-
-        if (!HkmpRuntimeResolver.TrySetMemberValue(menuSetting, applyMemberName, noOp)) {
-            return false;
-        }
-
-        try {
-            handler(displayTeam);
-            return true;
-        } catch (Exception exception) {
-            _owner?.LogInGameMenuWarning("Could not refresh the stock HKMP team selector: " + exception.GetBaseException());
-            return false;
-        } finally {
-            HkmpRuntimeResolver.TrySetMemberValue(menuSetting, applyMemberName, originalDelegate);
-        }
-    }
-
-    private static object FindStockTeamOption(object instance, HashSet<object> visited, int depth) {
-        if (instance == null || depth > 4 || !visited.Add(instance)) {
-            return null;
-        }
-
-        foreach (var field in GetAllInstanceFields(instance.GetType())) {
-            if (field.IsStatic) {
-                continue;
-            }
-
-            object value;
-            try {
-                value = field.GetValue(instance);
-            } catch {
-                continue;
-            }
-
-            if (value == null) {
-                continue;
-            }
-
-            if (field.Name.IndexOf("teamHorizontalOption", StringComparison.OrdinalIgnoreCase) >= 0) {
-                return value;
-            }
-
-            var valueType = value.GetType();
-            if (value is string || value is Delegate || valueType.IsPrimitive || valueType.IsEnum
-                || value is UnityEngine.Object || value is IEnumerable) {
-                continue;
-            }
-
-            var nested = FindStockTeamOption(value, visited, depth + 1);
-            if (nested != null) {
-                return nested;
-            }
-        }
-
-        return null;
     }
 
     private static bool IsNativeTeam(Team team) {
@@ -500,19 +401,17 @@ internal sealed class InGameTeamMenu {
 
     private static bool HasTeamRadioButton(object componentGroup) {
         var components = HkmpRuntimeResolver.GetMemberValue(componentGroup, "_components") as IList;
-        if (components == null) {
+        return components != null && components.Cast<object>().Any(IsStockTeamRadioButton);
+    }
+
+    private static bool IsStockTeamRadioButton(object component) {
+        if (component == null || !string.Equals(component.GetType().Name, "RadioButtonBoxComponent", StringComparison.Ordinal)) {
             return false;
         }
 
-        return components.Cast<object>().Any(component => {
-            if (component == null || !string.Equals(component.GetType().Name, "RadioButtonBoxComponent", StringComparison.Ordinal)) {
-                return false;
-            }
-
-            var header = HkmpRuntimeResolver.GetMemberValue(component, "_headerTextComponent");
-            var text = HkmpRuntimeResolver.GetMemberValue(header, "_textObject") as Text;
-            return text != null && string.Equals(text.text, "Team selection", StringComparison.OrdinalIgnoreCase);
-        });
+        var header = HkmpRuntimeResolver.GetMemberValue(component, "_headerTextComponent");
+        var text = HkmpRuntimeResolver.GetMemberValue(header, "_textObject") as Text;
+        return text != null && string.Equals(text.text, "Team selection", StringComparison.OrdinalIgnoreCase);
     }
 
     private void OpenTeamPage() {
@@ -543,6 +442,51 @@ internal sealed class InGameTeamMenu {
         return Math.Min(8, 1 + customPages);
     }
 
+    private void SynchronizeStockTeamSelection(int currentTeamId) {
+        if (_stockTeamRadioButton == null) {
+            return;
+        }
+
+        try {
+            var checkboxes = HkmpRuntimeResolver.GetMemberValue(_stockTeamRadioButton, "_checkboxes") as IEnumerable;
+            if (checkboxes == null) {
+                throw new InvalidOperationException("HKMP stock team RadioButtonBoxComponent checkboxes were not found");
+            }
+
+            var isNativeTeam = IsNativeTeam((Team)currentTeamId);
+            var checkboxCount = 0;
+            var checkboxIndex = 0;
+            foreach (var checkbox in checkboxes) {
+                if (checkbox == null) {
+                    checkboxIndex++;
+                    continue;
+                }
+
+                var setToggled = checkbox.GetType().GetMethod(
+                    "SetToggled",
+                    InstanceFlags,
+                    null,
+                    new[] { typeof(bool) },
+                    null
+                );
+                if (setToggled == null) {
+                    throw new InvalidOperationException("HKMP stock team checkbox SetToggled(bool) was not found");
+                }
+
+                setToggled.Invoke(checkbox, new object[] { isNativeTeam && checkboxIndex == currentTeamId });
+                checkboxCount++;
+                checkboxIndex++;
+            }
+
+            var selectedIndex = isNativeTeam && currentTeamId < checkboxIndex ? currentTeamId : -1;
+            if (checkboxCount == 0 || !HkmpRuntimeResolver.TrySetMemberValue(_stockTeamRadioButton, "_activeIndex", selectedIndex)) {
+                throw new InvalidOperationException("HKMP stock team RadioButtonBoxComponent selection could not be synchronized");
+            }
+        } catch (Exception exception) {
+            _owner?.LogInGameMenuWarning("Could not synchronize the stock HKMP team selection for team ID " + currentTeamId + ": " + exception.GetBaseException());
+        }
+    }
+
     private int GetPageForTeam(int teamId) {
         if (teamId < TeamConfigStore.FirstCustomTeamId) {
             return 0;
@@ -561,6 +505,9 @@ internal sealed class InGameTeamMenu {
         if (_owner == null) {
             return;
         }
+
+        var currentTeamId = _owner.CurrentTeamId;
+        SynchronizeStockTeamSelection(currentTeamId);
 
         var customTeams = _owner.GetCustomTeams().OrderBy(team => team.Id).ToList();
         var pageCount = GetPageCount(customTeams.Count);
